@@ -343,12 +343,6 @@ graph TB
     LOCAL_MANIFEST --> COMPONENT
     COMPONENT --> DISPLAY
 
-    %% Styling
-    classDef inputClass fill:#e1f5fe
-    classDef processClass fill:#f3e5f5
-    classDef outputClass fill:#e8f5e8
-    classDef usageClass fill:#fff3e0
-
     class MDX,ENV inputClass
     class PARSER,MANIFEST_GEN,CLI,BROWSER processClass
     class SOURCE_MANIFEST,IMAGES,LOCAL_MANIFEST outputClass
@@ -554,13 +548,6 @@ graph TB
     MANIFEST_SVC --> FS_SVC
     DOWNLOAD_SVC --> FS_SVC
     DOWNLOAD_SVC --> STATS
-
-    %% Styling
-    classDef cliClass fill:#e3f2fd
-    classDef coreClass fill:#f1f8e9
-    classDef browserClass fill:#fff3e0
-    classDef dataClass fill:#fce4ec
-    classDef utilClass fill:#f3e5f5
 
     class CLI_APP,MAIN_CMD,LIST_CMD,OPT_PARSER,OUT_FMT cliClass
     class CONFIG,PATH_RES,MAN_PRELOAD coreClass

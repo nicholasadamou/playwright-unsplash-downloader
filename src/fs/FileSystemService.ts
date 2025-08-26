@@ -262,8 +262,16 @@ export class FileSystemService {
         localManifest.images[result.photoId] = {
           local_path: `/${relativePath.replace(/\\/g, "/")}`,
           downloaded_at: new Date().toISOString(),
-          author: result.author,
+          author: result.author || "Unknown author",
+          author_url: result.authorUrl,
+          image_url: result.imageUrl,
           size_bytes: result.size,
+          width: result.width,
+          height: result.height,
+          description: result.description,
+          location: result.location,
+          camera: result.camera,
+          likes: result.likes,
           skipped: result.skipped || false,
           download_method: "playwright",
         };

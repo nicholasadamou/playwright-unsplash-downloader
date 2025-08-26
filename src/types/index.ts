@@ -192,6 +192,22 @@ export interface DownloadResult {
   size?: number;
   /** Image author (if available) */
   author?: string;
+  /** Author's profile URL (if available) */
+  authorUrl?: string;
+  /** Direct image URL used for download */
+  imageUrl?: string;
+  /** Image width in pixels */
+  width?: number;
+  /** Image height in pixels */
+  height?: number;
+  /** Image description/alt text */
+  description?: string;
+  /** Image location where taken */
+  location?: string;
+  /** Camera/equipment information */
+  camera?: string;
+  /** Number of likes on Unsplash */
+  likes?: number;
   /** Error message (if failed) */
   error?: string;
   /** Whether download was skipped (file exists) */
@@ -473,8 +489,24 @@ export interface LocalImageEntry {
   downloaded_at: string;
   /** Image author */
   author: string;
+  /** Author's profile URL */
+  author_url?: string;
+  /** Direct image URL used for download */
+  image_url?: string;
   /** File size in bytes */
   size_bytes: number;
+  /** Image width in pixels */
+  width?: number;
+  /** Image height in pixels */
+  height?: number;
+  /** Image description/alt text */
+  description?: string;
+  /** Image location where taken */
+  location?: string;
+  /** Camera/equipment information */
+  camera?: string;
+  /** Number of likes on Unsplash */
+  likes?: number;
   /** Whether download was skipped (file existed) */
   skipped: boolean;
   /** Download method used */

@@ -5,6 +5,8 @@ import type { Config } from "../config/Config.js";
 import type { BrowserManager } from "../browser/BrowserManager.js";
 import type { FileSystemService } from "../fs/FileSystemService.js";
 import type { StatsTracker } from "../stats/StatsTracker.js";
+import { UnsplashAPIService } from "../api/UnsplashAPIService.js";
+import type { UnsplashImageMetadata } from "../api/UnsplashAPIService.js";
 import type {
   ImageData,
   DownloadResult,
@@ -22,6 +24,7 @@ export class DownloadService {
   private readonly browser: BrowserManager;
   private readonly fs: FileSystemService;
   private readonly stats: StatsTracker;
+  private readonly apiService: UnsplashAPIService;
 
   /**
    * Create a new download service instance.
@@ -45,6 +48,7 @@ export class DownloadService {
     this.browser = browserManager;
     this.fs = fileSystemService;
     this.stats = statsTracker;
+    this.apiService = new UnsplashAPIService(config);
   }
 
   /**
@@ -366,6 +370,60 @@ export class DownloadService {
   }
 
   /**
+   * Enhance download result with additional metadata from the Unsplash API.
+   * Fetches comprehensive image metadata including author information,
+   * image properties, EXIF data, location, and more.
+   *
+   * @param result - Basic download result to enhance
+   * @returns Enhanced download result with API metadata
+   * @example
+   * ```javascript
+   * const enhancedResult = await downloadService.enhanceWithApiMetadata(basicResult);
+   * console.log('Author URL:', enhancedResult.authorUrl);
+   * console.log('Location:', enhancedResult.location);
+   * ```
+   */
+  async enhanceWithApiMetadata(result: DownloadResult): Promise<DownloadResult> {
+    if (!result.success) {
+      return result;
+    }
+
+    try {
+      // Fetch enhanced metadata from Unsplash API
+      const apiMetadata = await this.apiService.fetchImageMetadata(result.photoId);
+
+      // Enhance the result with API metadata
+      const enhancedResult: DownloadResult = {
+        ...result,
+        author: apiMetadata.author,
+        authorUrl: apiMetadata.authorUrl,
+        imageUrl: apiMetadata.imageUrl,
+        width: apiMetadata.width,
+        height: apiMetadata.height,
+        likes: apiMetadata.likes,
+      };
+      
+      // Add optional fields only if they have values
+      if (apiMetadata.description) {
+        enhancedResult.description = apiMetadata.description;
+      }
+      if (apiMetadata.location) {
+        enhancedResult.location = apiMetadata.location;
+      }
+      if (apiMetadata.camera) {
+        enhancedResult.camera = apiMetadata.camera;
+      }
+      
+      return enhancedResult;
+    } catch (error) {
+      console.log(
+        chalk.yellow(`   ⚠️  Could not enhance with API metadata: ${(error as Error).message}`)
+      );
+      return result;
+    }
+  }
+
+  /**
    * Download a single image with a comprehensive retry mechanism.
    * Implements exponential backoff and handles dry-run mode simulation.
    * Tracks statistics and provides detailed error reporting.
@@ -413,7 +471,8 @@ export class DownloadService {
           throw new Error("Download directory not configured");
         }
 
-        return {
+        // Create basic result
+        let result: DownloadResult = {
           success: true,
           photoId,
           filepath: path.join(downloadDir, `${photoId}.jpg`),
@@ -422,6 +481,10 @@ export class DownloadService {
           author: imageData.image_author || "Unknown author",
           dryRun: true,
         };
+
+        // Enhance with API metadata
+        result = await this.enhanceWithApiMetadata(result);
+        return result;
       }
 
       // Use direct download URL approach only
@@ -441,7 +504,9 @@ export class DownloadService {
       );
 
       this.stats.incrementDownloaded();
-      return {
+
+      // Create basic result
+      let result: DownloadResult = {
         success: true,
         photoId,
         filepath: fileInfo.filepath,
@@ -449,6 +514,10 @@ export class DownloadService {
         size: fileInfo.size,
         author: imageData.image_author || "Unknown author",
       };
+
+      // Enhance with API metadata
+      result = await this.enhanceWithApiMetadata(result);
+      return result;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";

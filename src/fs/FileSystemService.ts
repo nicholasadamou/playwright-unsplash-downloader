@@ -223,7 +223,7 @@ export class FileSystemService {
    * @returns Relative path
    */
   getRelativePath(filePath: string, basePath: string | null = null): string {
-    const base = basePath || path.join(process.cwd(), "../../public");
+    const base = basePath || path.join(process.cwd());
     return path.relative(base, filePath);
   }
 

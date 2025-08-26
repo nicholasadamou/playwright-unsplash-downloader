@@ -23,7 +23,7 @@ A sophisticated TypeScript-based Playwright service for downloading images from 
 
 - Node.js 18+
 - An Unsplash account and API access key
-- Existing `unsplash-manifest.json` file (created by your main project)
+- Existing `unsplash-manifest.json` file
 
 ### Installation
 
@@ -295,17 +295,296 @@ tools/playwright-image-downloader/
 
 ## 🔄 How It Works
 
+### System Overview
+
+```mermaid
+graph TB
+    subgraph "Input Sources"
+        MDX[📄 MDX Files<br/>with image_url frontmatter]
+        ENV[🔐 Environment Variables<br/>UNSPLASH_EMAIL<br/>UNSPLASH_PASSWORD]
+    end
+
+    subgraph "Generation Phase"
+        PARSER[📝 MDX Parser<br/>Extracts URLs & Metadata]
+        MANIFEST_GEN[📋 Manifest Generator<br/>Creates unsplash-manifest.json]
+    end
+
+    subgraph "Download Phase"
+        CLI[🎭 Playwright Downloader CLI]
+        BROWSER[🌐 Browser Automation]
+        UNSPLASH[☁️ Unsplash.com<br/>Premium + Free Images]
+    end
+
+    subgraph "Output Artifacts"
+        SOURCE_MANIFEST[📄 unsplash-manifest.json<br/>Source metadata]
+        IMAGES[🖼️ Downloaded Images<br/>.jpg files]
+        LOCAL_MANIFEST[📋 local-manifest.json<br/>Download results]
+    end
+
+    subgraph "Usage Phase"
+        COMPONENT[⚛️ React/Next.js Component]
+        DISPLAY[🖥️ Rendered Images]
+    end
+
+    %% Flow connections
+    MDX --> PARSER
+    PARSER --> MANIFEST_GEN
+    MANIFEST_GEN --> SOURCE_MANIFEST
+
+    SOURCE_MANIFEST --> CLI
+    ENV --> CLI
+    CLI --> BROWSER
+    BROWSER --> UNSPLASH
+
+    BROWSER --> IMAGES
+    CLI --> LOCAL_MANIFEST
+
+    IMAGES --> COMPONENT
+    LOCAL_MANIFEST --> COMPONENT
+    COMPONENT --> DISPLAY
+
+    %% Styling
+    classDef inputClass fill:#e1f5fe
+    classDef processClass fill:#f3e5f5
+    classDef outputClass fill:#e8f5e8
+    classDef usageClass fill:#fff3e0
+
+    class MDX,ENV inputClass
+    class PARSER,MANIFEST_GEN,CLI,BROWSER processClass
+    class SOURCE_MANIFEST,IMAGES,LOCAL_MANIFEST outputClass
+    class COMPONENT,DISPLAY,UNSPLASH usageClass
+```
+
+### Detailed Processing Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CLI as CLI Application
+    participant Config as Configuration
+    participant PathRes as PathResolver
+    participant ManPre as ManifestPreloader
+    participant Browser as BrowserManager
+    participant Auth as AuthService
+    participant ManSvc as ManifestService
+    participant DlSvc as DownloadService
+    participant FS as FileSystemService
+    participant Unsplash as Unsplash.com
+
+    U->>CLI: pnpm run download
+    CLI->>Config: Initialize with smart path resolution
+    Config->>PathRes: Resolve manifest & download paths
+
+    CLI->>ManPre: Preload & validate manifest
+    ManPre->>PathRes: Find manifest in common locations
+    PathRes-->>ManPre: public/images/unsplash/manifest.json
+    ManPre->>FS: Check manifest exists & valid
+    ManPre-->>CLI: ✅ Manifest validated
+
+    CLI->>Browser: Initialize Chromium
+    Browser-->>CLI: Browser ready
+
+    CLI->>Auth: Attempt auto-login
+    Auth->>Browser: Navigate to unsplash.com/login
+    Auth->>Unsplash: Submit credentials
+    Unsplash-->>Auth: Login successful
+    Auth-->>CLI: ✅ Authenticated
+
+    CLI->>ManSvc: Load & process manifest
+    ManSvc->>FS: Read unsplash-manifest.json
+    FS-->>ManSvc: {"images": {"id": {"author": "..."}}}
+    ManSvc-->>CLI: Processed image entries
+
+    loop For each image
+        CLI->>DlSvc: downloadImage(photoId, imageData)
+        DlSvc->>FS: Check if image exists locally
+
+        alt Image exists
+            FS-->>DlSvc: File exists, skip
+            DlSvc-->>CLI: {success: true, skipped: true}
+        else Image missing
+            DlSvc->>Browser: Navigate to photo page
+            DlSvc->>Browser: Extract ixid parameter
+            DlSvc->>Browser: Click download button
+            Browser->>Unsplash: Download unwatermarked image
+            Unsplash-->>Browser: Image file
+            DlSvc->>FS: Save image file
+            FS-->>DlSvc: {filepath, size, filename}
+            DlSvc-->>CLI: {success: true, author: "Pankaj Patel"}
+        end
+    end
+
+    CLI->>FS: Create local manifest
+    FS->>FS: Generate local-manifest.json
+    FS-->>CLI: Local manifest created
+
+    CLI->>Browser: Cleanup & close
+    CLI-->>U: ✅ Download complete with stats
+```
+
+### Manifest Structure & Data Flow
+
+```mermaid
+graph LR
+    subgraph "MDX Frontmatter"
+        MDX_FM["---<br/>title: 'Post'<br/>image_url: 'unsplash.com/photo/abc123'<br/>---"]
+    end
+
+    subgraph "Source Manifest"
+        SOURCE_JSON["📄 unsplash-manifest.json<br/>{<br/>  'abc123': {<br/>    'image_author': 'John Doe',<br/>    'width': 3000,<br/>    'height': 2000,<br/>    'description': '...'<br/>  }<br/>}"]
+    end
+
+    subgraph "Processing"
+        EXTRACTOR["🔍 URL ID Extractor<br/>unsplash.com/photo/abc123<br/>↓<br/>Photo ID: 'abc123'"]
+        BROWSER_DL["🎭 Playwright Download<br/>• Navigate to photo page<br/>• Extract ixid parameter<br/>• Click download button<br/>• Handle Unsplash+ unwatermarked"]
+    end
+
+    subgraph "Output Files"
+        IMG_FILE["🖼️ abc123.jpg<br/>(Unwatermarked)"]
+        LOCAL_JSON["📋 local-manifest.json<br/>{<br/>  'abc123': {<br/>    'local_path': '/images/abc123.jpg',<br/>    'author': 'John Doe',<br/>    'size_bytes': 2048000,<br/>    'downloaded_at': '2025-08-26...',<br/>    'skipped': false<br/>  }<br/>}"]
+    end
+
+    subgraph "Component Usage"
+        COMPONENT["⚛️ ImageComponent<br/>const manifest = require('local-manifest.json')<br/>const imgPath = manifest['abc123'].local_path<br/>const author = manifest['abc123'].author"]
+        RENDERED["🖥️ <img src='/images/abc123.jpg'><br/><span>Photo by John Doe</span>"]
+    end
+
+    %% Flow
+    MDX_FM --> SOURCE_JSON
+    SOURCE_JSON --> EXTRACTOR
+    EXTRACTOR --> BROWSER_DL
+    BROWSER_DL --> IMG_FILE
+    BROWSER_DL --> LOCAL_JSON
+    LOCAL_JSON --> COMPONENT
+    IMG_FILE --> COMPONENT
+    COMPONENT --> RENDERED
+```
+
+### Smart Path Resolution Flow
+
+```mermaid
+graph TD
+    START([CLI Start]) --> CHECK_PROVIDED{"--manifest-path<br/>provided?"}
+
+    CHECK_PROVIDED -->|Yes| RESOLVE_PROVIDED["✅ Use provided path<br/>path.resolve(provided)"]
+    CHECK_PROVIDED -->|No| SMART_SEARCH["🔍 Smart Path Search"]
+
+    SMART_SEARCH --> CURRENT["📁 Check current directory<br/>./unsplash-manifest.json"]
+    CURRENT --> CURRENT_EXISTS{"Exists?"}
+    CURRENT_EXISTS -->|Yes| FOUND_CURRENT["✅ Found in current"]
+    CURRENT_EXISTS -->|No| COMMON_DIRS
+
+    COMMON_DIRS["📂 Check common directories<br/>./public/<br/>./assets/<br/>./data/<br/>./static/"] --> COMMON_EXISTS{"Found?"}
+    COMMON_EXISTS -->|Yes| FOUND_COMMON["✅ Found in common dir"]
+    COMMON_EXISTS -->|No| NESTED_SEARCH
+
+    NESTED_SEARCH["🔍 Check nested paths<br/>./public/images/unsplash/<br/>./assets/images/<br/>./data/unsplash/"] --> NESTED_EXISTS{"Found?"}
+    NESTED_EXISTS -->|Yes| FOUND_NESTED["✅ Found in nested path"]
+    NESTED_EXISTS -->|No| PARENT_SEARCH
+
+    PARENT_SEARCH["⬆️ Check parent directories<br/>../public/<br/>../../public/<br/>../../../public/"] --> PARENT_EXISTS{"Found?"}
+    PARENT_EXISTS -->|Yes| FOUND_PARENT["✅ Found in parent"]
+    PARENT_EXISTS -->|No| DEFAULT_FALLBACK
+
+    DEFAULT_FALLBACK["📋 Use default<br/>./public/unsplash-manifest.json<br/>(will be created if needed)"]
+
+    %% All paths lead to manifest loading
+    RESOLVE_PROVIDED --> LOAD_MANIFEST["📄 Load & Validate Manifest"]
+    FOUND_CURRENT --> LOAD_MANIFEST
+    FOUND_COMMON --> LOAD_MANIFEST
+    FOUND_NESTED --> LOAD_MANIFEST
+    FOUND_PARENT --> LOAD_MANIFEST
+    DEFAULT_FALLBACK --> LOAD_MANIFEST
+
+    LOAD_MANIFEST --> PRELOAD_CHECK{"Manifest valid?"}
+    PRELOAD_CHECK -->|Yes| SUCCESS["✅ Ready to download"]
+    PRELOAD_CHECK -->|No| ERROR_HELP["❌ Show helpful error<br/>• Suggest locations<br/>• Show example structure<br/>• Provide creation tips"]
+```
+
+### Service Architecture
+
+```mermaid
+graph TB
+    subgraph "CLI Layer"
+        CLI_APP[CLI Application]
+        MAIN_CMD[MainCommand]
+        LIST_CMD[ListCommand]
+        OPT_PARSER[OptionParser]
+        OUT_FMT[OutputFormatter]
+    end
+
+    subgraph "Core Services"
+        CONFIG[Config]
+        PATH_RES[PathResolver]
+        MAN_PRELOAD[ManifestPreloader]
+    end
+
+    subgraph "Browser Layer"
+        BROWSER_MGR[BrowserManager]
+        AUTH_SVC[AuthenticationService]
+    end
+
+    subgraph "Data Layer"
+        MANIFEST_SVC[ManifestService]
+        DOWNLOAD_SVC[DownloadService]
+        FS_SVC[FileSystemService]
+        API_SVC[UnsplashAPIService]
+    end
+
+    subgraph "Utilities"
+        STATS[StatsTracker]
+        TYPES[TypeScript Types]
+    end
+
+    %% Dependencies
+    CLI_APP --> MAIN_CMD
+    CLI_APP --> LIST_CMD
+    MAIN_CMD --> OPT_PARSER
+    MAIN_CMD --> OUT_FMT
+
+    MAIN_CMD --> CONFIG
+    CONFIG --> PATH_RES
+    MAIN_CMD --> MAN_PRELOAD
+
+    MAIN_CMD --> BROWSER_MGR
+    AUTH_SVC --> BROWSER_MGR
+
+    DOWNLOAD_SVC --> BROWSER_MGR
+    DOWNLOAD_SVC --> API_SVC
+    MANIFEST_SVC --> FS_SVC
+    DOWNLOAD_SVC --> FS_SVC
+    DOWNLOAD_SVC --> STATS
+
+    %% Styling
+    classDef cliClass fill:#e3f2fd
+    classDef coreClass fill:#f1f8e9
+    classDef browserClass fill:#fff3e0
+    classDef dataClass fill:#fce4ec
+    classDef utilClass fill:#f3e5f5
+
+    class CLI_APP,MAIN_CMD,LIST_CMD,OPT_PARSER,OUT_FMT cliClass
+    class CONFIG,PATH_RES,MAN_PRELOAD coreClass
+    class BROWSER_MGR,AUTH_SVC browserClass
+    class MANIFEST_SVC,DOWNLOAD_SVC,FS_SVC,API_SVC dataClass
+    class STATS,TYPES utilClass
+```
+
+### Processing Steps
+
 1. **Initialization**: Launches a Chromium browser instance with optimized settings
-2. **Manifest Loading**: Reads the Unsplash manifest from your main project
-3. **Authentication**: Handles login to Unsplash (automatic or manual)
-4. **Image Processing**:
+2. **Smart Path Resolution**: Uses PathResolver to find manifests in common locations
+3. **Manifest Preloading**: Validates manifest existence and structure before processing
+4. **Authentication**: Handles login to Unsplash (automatic or manual)
+5. **Image Processing**:
    - Visits each image page on Unsplash
+   - Extracts ixid parameter for proper download URLs
    - Checks if image already exists locally
-   - Clicks the download button
+   - Clicks the download button (gets unwatermarked Unsplash+ images)
    - Saves the image with proper naming
-5. **Retry Logic**: Automatically retries failed downloads with exponential backoff
-6. **Manifest Creation**: Generates a local manifest with download results
-7. **Cleanup**: Closes browser and reports statistics
+6. **Metadata Preservation**: Transfers author and metadata from source to local manifest
+7. **Retry Logic**: Automatically retries failed downloads with exponential backoff
+8. **Local Manifest Creation**: Generates a detailed local manifest with download results
+9. **Cleanup**: Closes browser and reports comprehensive statistics
 
 ## 📊 Output
 
@@ -368,14 +647,13 @@ Example output:
 Run with debug flags for troubleshooting:
 
 ```bash
-pnpm run download -- --no-headless --debug --concurrency 1
+pnpm run download -- --no-headless --debug
 ```
 
 This will:
 
 - Show the browser window
-- Open DevTools
-- Process one image at a time
+- Opens Browser DevTools
 - Provide detailed error information
 
 ## 🔧 Advanced Usage

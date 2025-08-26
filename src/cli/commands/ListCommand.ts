@@ -1,4 +1,5 @@
 import fs from "fs-extra";
+import { ManifestPreloader } from "../../manifest/ManifestPreloader.js";
 import type { OptionParser } from "../OptionParser.js";
 import type { OutputFormatter } from "../OutputFormatter.js";
 import type {
@@ -41,6 +42,7 @@ export interface ListCommandResult {
 export class ListCommand {
   private readonly optionParser: OptionParser;
   private readonly outputFormatter: OutputFormatter;
+  private readonly manifestPreloader: ManifestPreloader;
 
   /**
    * Create a new list command instance.
@@ -48,11 +50,12 @@ export class ListCommand {
   constructor(optionParser: OptionParser, outputFormatter: OutputFormatter) {
     this.optionParser = optionParser;
     this.outputFormatter = outputFormatter;
+    this.manifestPreloader = new ManifestPreloader();
   }
 
   /**
    * Execute the list command to display manifest contents.
-   * Loads and parses the manifest file, then displays formatted image entries.
+   * Uses manifest preloading for better error handling and validation.
    */
   public async execute(
     options: Record<string, any> = {}
@@ -60,16 +63,19 @@ export class ListCommand {
     try {
       const parsedOptions = this.optionParser.parseListOptions(options);
 
-      // Check if manifest exists
-      if (!(await fs.pathExists(parsedOptions.manifestPath))) {
+      // Preload and validate manifest
+      const manifestResult = await this.manifestPreloader.preloadManifest(options.manifestPath);
+      
+      if (!manifestResult.success) {
+        this.manifestPreloader.displayPreloadResult(manifestResult);
         return {
           success: false,
-          error: `Manifest not found: ${parsedOptions.manifestPath}`,
+          error: manifestResult.error || "Manifest validation failed",
         };
       }
-
-      // Load and parse manifest
-      const manifest = await fs.readJson(parsedOptions.manifestPath);
+      
+      // Use preloaded manifest content
+      const manifest = manifestResult.content!;
       const images = Object.entries(manifest.images || {});
 
       // Display results
@@ -176,17 +182,18 @@ export class ListCommand {
 
   /**
    * Validate command prerequisites before execution.
-   * Checks that the specified manifest file exists and is accessible.
+   * Uses ManifestPreloader for comprehensive manifest validation.
    */
   public async validatePrerequisites(
     options: Record<string, any>
   ): Promise<ValidationResult> {
-    const parsedOptions = this.optionParser.parseListOptions(options);
-
-    if (!(await fs.pathExists(parsedOptions.manifestPath))) {
+    // Use manifest preloader for comprehensive validation
+    const manifestResult = await this.manifestPreloader.preloadManifest(options.manifestPath);
+    
+    if (!manifestResult.success) {
       return {
         valid: false,
-        error: `Manifest file not found: ${parsedOptions.manifestPath}`,
+        error: manifestResult.error || "Manifest validation failed"
       };
     }
 

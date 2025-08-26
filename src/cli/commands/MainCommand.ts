@@ -1,4 +1,5 @@
 import { PlaywrightImageDownloader } from "../../PlaywrightImageDownloader.js";
+import { ManifestPreloader } from "../../manifest/ManifestPreloader.js";
 import type { OptionParser } from "../OptionParser.js";
 import type { OutputFormatter } from "../OutputFormatter.js";
 import type {
@@ -30,6 +31,7 @@ export interface MainCommandResult {
 export class MainCommand {
   private readonly optionParser: OptionParser;
   private readonly outputFormatter: OutputFormatter;
+  private readonly manifestPreloader: ManifestPreloader;
 
   /**
    * Create a new main command instance.
@@ -37,6 +39,7 @@ export class MainCommand {
   constructor(optionParser: OptionParser, outputFormatter: OutputFormatter) {
     this.optionParser = optionParser;
     this.outputFormatter = outputFormatter;
+    this.manifestPreloader = new ManifestPreloader();
   }
 
   /**
@@ -50,6 +53,21 @@ export class MainCommand {
 
       // Parse and validate options
       const downloaderOptions = this.optionParser.parseMainOptions(options);
+      
+      // Preload and validate manifest early
+      const manifestResult = await this.manifestPreloader.preloadManifest(options.manifestPath);
+      if (!manifestResult.success) {
+        this.manifestPreloader.displayPreloadResult(manifestResult);
+        return {
+          success: false,
+          error: manifestResult.error || "Manifest validation failed"
+        };
+      }
+      
+      // Display manifest preload success
+      if (options.debug) {
+        this.manifestPreloader.displayPreloadResult(manifestResult);
+      }
 
       // Display configuration
       this.outputFormatter.displayConfiguration(downloaderOptions);
@@ -181,12 +199,22 @@ export class MainCommand {
   }
 
   /**
-   * Validate command prerequisites
+   * Validate command prerequisites including manifest existence
    */
   public async validatePrerequisites(
     options: Record<string, any>
   ): Promise<ValidationResult> {
-    // Could add pre-execution validation here
+    // Validate manifest exists before starting
+    const manifestExists = await this.manifestPreloader.manifestExists(options.manifestPath);
+    
+    if (!manifestExists) {
+      const manifestResult = await this.manifestPreloader.preloadManifest(options.manifestPath);
+      return {
+        valid: false,
+        error: manifestResult.error || "Manifest file not found"
+      };
+    }
+    
     return { valid: true };
   }
 

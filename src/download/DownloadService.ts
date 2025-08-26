@@ -471,14 +471,18 @@ export class DownloadService {
           throw new Error("Download directory not configured");
         }
 
-        // Create basic result
+        // Create basic result with proper author information
         let result: DownloadResult = {
           success: true,
           photoId,
           filepath: path.join(downloadDir, `${photoId}.jpg`),
           filename: `${photoId}.jpg`,
           size: 1024 * 1024, // Simulate 1MB file
-          author: imageData.image_author || "Unknown author",
+          author: (imageData.image_author as string) || "Unknown author",
+          authorUrl: imageData.image_author_url as string,
+          width: imageData.width as number,
+          height: imageData.height as number,
+          description: imageData.description as string,
           dryRun: true,
         };
 
@@ -505,14 +509,18 @@ export class DownloadService {
 
       this.stats.incrementDownloaded();
 
-      // Create basic result
+      // Create basic result with proper author information  
       let result: DownloadResult = {
         success: true,
         photoId,
         filepath: fileInfo.filepath,
         filename: fileInfo.filename,
         size: fileInfo.size,
-        author: imageData.image_author || "Unknown author",
+        author: (imageData.image_author as string) || "Unknown author",
+        authorUrl: imageData.image_author_url as string,
+        width: imageData.width as number,
+        height: imageData.height as number,
+        description: imageData.description as string,
       };
 
       // Enhance with API metadata
@@ -638,6 +646,11 @@ export class DownloadService {
           skipped: true,
           filepath: existsCheck.filepath || "",
           size: existsCheck.size || 0,
+          author: (imageData.image_author as string) || "Unknown author",
+          authorUrl: imageData.image_author_url as string,
+          width: imageData.width as number,
+          height: imageData.height as number,
+          description: imageData.description as string,
         });
         continue;
       }

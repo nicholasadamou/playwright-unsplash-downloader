@@ -1,4 +1,6 @@
 import path from "path";
+import fs from "fs-extra";
+import { PathResolver } from "../utils/PathResolver.js";
 
 /**
  * @fileoverview CLI option parser and validator. Converts raw Commander options
@@ -62,6 +64,7 @@ type ValidSize = "original" | "large" | "medium" | "small";
  */
 export class OptionParser {
   private readonly validSizes: ValidSize[];
+  private readonly pathResolver: PathResolver;
 
   /**
    * Create a new option parser instance.
@@ -69,6 +72,7 @@ export class OptionParser {
    */
   constructor() {
     this.validSizes = ["original", "large", "medium", "small"];
+    this.pathResolver = new PathResolver();
   }
 
   /**
@@ -170,7 +174,7 @@ export class OptionParser {
       dryRun: options.dryRun || false,
     };
 
-    // Set custom paths if provided
+    // Set custom paths if provided using PathResolver
     if (options.manifestPath) {
       downloaderOptions.manifestPath = path.resolve(options.manifestPath);
     }
@@ -184,16 +188,85 @@ export class OptionParser {
 
   /**
    * Parse list command options and resolve manifest path.
-   * Handles manifest path resolution with defaults.
+   * Uses PathResolver for intelligent manifest path resolution.
    */
   public parseListOptions(options: Record<string, any>): {
     manifestPath: string;
   } {
-    return {
-      manifestPath: options.manifestPath
-        ? path.resolve(options.manifestPath)
-        : path.resolve(process.cwd(), "../../public/unsplash-manifest.json"),
-    };
+    const manifestPath = options.manifestPath
+      ? path.resolve(options.manifestPath)
+      : this.getSmartManifestPath();
+      
+    return { manifestPath };
+  }
+  
+  /**
+   * Get smart default manifest path using sync path resolution.
+   * Fallback method for use in CLI parsing where async operations aren't available.
+   * 
+   * @returns string - Resolved manifest path
+   */
+  private getSmartManifestPath(): string {
+    const workingDir = process.cwd();
+    const filename = "unsplash-manifest.json";
+    const commonDirs = ["public", "assets", "data", "static", "resources", "content"];
+    
+    // Check current directory
+    const currentPath = path.resolve(workingDir, filename);
+    if (fs.existsSync(currentPath)) {
+      return currentPath;
+    }
+    
+    // Check common subdirectories and nested paths
+    for (const dir of commonDirs) {
+      const dirPath = path.resolve(workingDir, dir, filename);
+      if (fs.existsSync(dirPath)) {
+        return dirPath;
+      }
+      
+      // Also check nested common paths
+      const nestedPaths = [
+        path.resolve(workingDir, dir, "images", filename),
+        path.resolve(workingDir, dir, "assets", filename),
+        path.resolve(workingDir, dir, "data", filename),
+        path.resolve(workingDir, dir, "unsplash", filename),
+        path.resolve(workingDir, dir, "images", "unsplash", filename)
+      ];
+      
+      for (const nestedPath of nestedPaths) {
+        if (fs.existsSync(nestedPath)) {
+          return nestedPath;
+        }
+      }
+    }
+    
+    // Check parent directories (up to 3 levels)
+    for (let level = 1; level <= 3; level++) {
+      const parentDir = path.resolve(workingDir, "../".repeat(level));
+      
+      // Check parent directory directly
+      const parentPath = path.resolve(parentDir, filename);
+      if (fs.existsSync(parentPath)) {
+        return parentPath;
+      }
+      
+      // Check common subdirectories in parent
+      for (const commonDir of commonDirs) {
+        const parentCommonPath = path.resolve(parentDir, commonDir, filename);
+        if (fs.existsSync(parentCommonPath)) {
+          return parentCommonPath;
+        }
+      }
+    }
+    
+    // If no existing manifest found, return most likely location
+    // Prefer public directory if it exists, otherwise current directory
+    const publicDir = path.resolve(workingDir, "public");
+    if (fs.existsSync(publicDir)) {
+      return path.resolve(publicDir, filename);
+    }
+    
+    return currentPath;
   }
 
   /**

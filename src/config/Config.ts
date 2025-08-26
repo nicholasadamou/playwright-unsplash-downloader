@@ -1,4 +1,6 @@
 import path from "path";
+import fs from "fs-extra";
+import { PathResolver } from "../utils/PathResolver.js";
 import type {
   ConfigOptions,
   ImageSize,
@@ -35,6 +37,7 @@ import type {
  */
 export class Config {
   private readonly options: ConfigOptions;
+  private readonly pathResolver: PathResolver;
 
   /**
    * Create a new configuration instance.
@@ -56,26 +59,27 @@ export class Config {
    * ```
    */
   constructor(options: ConfigOptions = {}) {
+    this.pathResolver = new PathResolver();
     this.options = this.validateAndSetDefaults(options);
   }
 
   /**
    * Validate and merge provided options with defaults. Sets up default paths
-   * relative to the current working directory and validates all configuration values.
+   * using smart path resolution and validates all configuration values.
    *
    * @param options - User-provided configuration options
    * @returns Validated and merged configuration object
    * @throws {Error} When any configuration value fails validation
    */
   private validateAndSetDefaults(options: ConfigOptions): ConfigOptions {
+    // Use PathResolver for smart defaults instead of hardcoded paths
+    const smartPaths = this.getSmartDefaultPaths(options);
+    
     const defaults = {
       headless: true,
       debug: false,
-      downloadDir: path.resolve(process.cwd(), "../../public/images/unsplash"),
-      manifestPath: path.resolve(
-        process.cwd(),
-        "../../public/unsplash-manifest.json"
-      ),
+      downloadDir: smartPaths.downloadDir,
+      manifestPath: smartPaths.manifestPath,
       timeout: 30000,
       retries: 3,
       preferredSize: "original" as ImageSize,
@@ -91,6 +95,79 @@ export class Config {
 
     this.validateConfig(config);
     return config;
+  }
+
+  /**
+   * Get smart default paths using the PathResolver.
+   * Resolves paths relative to provided options or uses intelligent defaults.
+   * 
+   * @param options - User-provided options that may contain custom paths
+   * @returns Object with resolved manifestPath and downloadDir
+   */
+  private getSmartDefaultPaths(options: ConfigOptions): {
+    manifestPath: string;
+    downloadDir: string;
+  } {
+    // If user provided paths, resolve them; otherwise use smart defaults
+    const manifestPath = options.manifestPath 
+      ? path.resolve(options.manifestPath)
+      : this.getManifestPathSync();
+    
+    const downloadDir = options.downloadDir
+      ? path.resolve(options.downloadDir) 
+      : this.pathResolver.resolveDownloadDir();
+      
+    return { manifestPath, downloadDir };
+  }
+  
+  /**
+   * Synchronous fallback for manifest path resolution.
+   * Used during config initialization when async operations aren't available.
+   * 
+   * @returns string - Resolved manifest path
+   */
+  private getManifestPathSync(): string {
+    const workingDir = process.cwd();
+    const filename = "unsplash-manifest.json";
+    const commonDirs = ["public", "assets", "data", "static", "resources", "content"];
+    
+    // Check current directory
+    const currentPath = path.resolve(workingDir, filename);
+    if (fs.existsSync(currentPath)) {
+      return currentPath;
+    }
+    
+    // Check common subdirectories and nested paths
+    for (const dir of commonDirs) {
+      const dirPath = path.resolve(workingDir, dir, filename);
+      if (fs.existsSync(dirPath)) {
+        return dirPath;
+      }
+      
+      // Also check nested common paths
+      const nestedPaths = [
+        path.resolve(workingDir, dir, "images", filename),
+        path.resolve(workingDir, dir, "assets", filename),
+        path.resolve(workingDir, dir, "data", filename),
+        path.resolve(workingDir, dir, "unsplash", filename),
+        path.resolve(workingDir, dir, "images", "unsplash", filename)
+      ];
+      
+      for (const nestedPath of nestedPaths) {
+        if (fs.existsSync(nestedPath)) {
+          return nestedPath;
+        }
+      }
+    }
+    
+    // Check if public directory exists, prefer it as default
+    const publicDir = path.resolve(workingDir, "public");
+    if (fs.existsSync(publicDir)) {
+      return path.resolve(publicDir, filename);
+    }
+    
+    // Default to current directory
+    return currentPath;
   }
 
   /**

@@ -1,125 +1,143 @@
 # 🎭 Playwright Image Downloader Integration
 
-This document explains how the Playwright Image Downloader integrates with your main project.
+This guide explains how to integrate this Playwright-based Unsplash image downloader into another project. It reflects the actual functionality and scripts provided by this repository.
 
-## 🔄 Integration with Main Project
+## 🔄 Integration Options
 
-### npm Scripts
+You can integrate this tool into your main project in one of the following ways:
 
-The main project now includes a new npm script that runs the Playwright downloader:
+1) tools/ subfolder (recommended)
+- Add this repo to your main project's tools/ directory (via copy or git submodule)
+- Useful when you want full control over the code
+
+2) Git submodule
+- git submodule add https://github.com/nicholasadamou/playwright-unsplash-downloader tools/playwright-image-downloader
+- Keeps the tool versioned separately and easy to update
+
+3) Monorepo/workspace
+- Include this project as a workspace package and run its scripts from the root
+
+## 🧩 Wiring It Into Your Main Project
+
+Add a script to your main project's package.json that calls this tool:
+
+```json
+{
+  "scripts": {
+    "download:images:playwright": "cd tools/playwright-image-downloader && pnpm run download"
+  }
+}
+```
+
+Then run from your main project root:
 
 ```bash
-# From the main project root
 pnpm run download:images:playwright
 ```
 
-This script automatically:
+This will build the TypeScript sources and execute the CLI exposed by this project.
 
-1. Navigates to the Playwright tool directory
-2. Installs dependencies (if needed)
-3. Runs the downloader with default settings
-
-### File Structure
+## 📁 Suggested File Structure
 
 ```
-nicholasadamou.com/
-├── scripts/
-│   └── download-images.js          # Original Node.js script
+<your-project>/
 ├── tools/
-│   └── playwright-image-downloader/ # New Playwright service
+│   └── playwright-image-downloader/
 │       ├── src/
 │       ├── package.json
 │       ├── playwright.config.js
+│       ├── .env.example
 │       └── README.md
 └── public/
-    ├── unsplash-manifest.json      # Source manifest (shared)
-    └── images/unsplash/           # Download directory (shared)
+    ├── unsplash-manifest.json         # Source manifest (shared)
+    └── images/unsplash/               # Download directory (shared)
 ```
 
-## 🆚 Comparison: Original vs Playwright
+Notes:
+- The manifest and output directory can be customized via CLI flags or environment variables.
+- If your project does not use public/, choose any path and pass it via --manifest-path/--download-dir.
 
-| Aspect               | Original Script       | Playwright Service                  |
-| -------------------- | --------------------- | ----------------------------------- |
-| **Authentication**   | API tokens only       | Full browser login                  |
-| **Download Method**  | Direct API calls      | Browser-based downloads             |
-| **Rate Limiting**    | API rate limits       | Browser-like behavior               |
-| **Image Quality**    | API restrictions      | Highest available quality           |
-| **Error Handling**   | Basic retry logic     | Advanced retry with browser context |
-| **Debugging**        | Console logs only     | Visual browser debugging            |
-| **Setup Complexity** | Simple (Node.js only) | Moderate (requires browsers)        |
-| **Resource Usage**   | Low                   | Higher (browser overhead)           |
-| **Premium Content**  | Limited access        | Full access with login              |
+## ⚙️ Environment Setup
 
-## 🎯 When to Use Which
-
-### Use Original Script When:
-
-- You want fast, lightweight downloads
-- API rate limits are not an issue
-- You don't need premium/high-res images
-- Running in constrained environments (CI, etc.)
-
-### Use Playwright Service When:
-
-- You need the highest quality images
-- You have an Unsplash account for better access
-- API downloads are failing or rate-limited
-- You want better error handling and retry logic
-- You need to debug download issues visually
-
-## 🚀 Quick Start
-
-1. **Setup Environment Variables**
-
-   ```bash
-   cd tools/playwright-image-downloader
-   cp .env.example .env
-   # Edit .env with your Unsplash credentials
-   ```
-
-2. **Install Browser Dependencies**
-
-   ```bash
-   cd tools/playwright-image-downloader
-   pnpm run install-browsers
-   ```
-
-3. **Run from Main Project**
-
-   ```bash
-   # From project root
-   pnpm run download:images:playwright
-   ```
-
-4. **Or Run Directly**
-   ```bash
-   cd tools/playwright-image-downloader
-   pnpm run download
-   ```
-
-## 🎛️ Advanced Usage
-
-### Custom Configuration
+From the tool directory:
 
 ```bash
-# With custom settings
 cd tools/playwright-image-downloader
-pnpm run download -- --concurrency 5 --timeout 45000 --no-headless
+pnpm install
+pnpm run install-browsers
+cp .env.example .env
+# Edit .env with your Unsplash credentials and preferences
+```
 
-# Debug mode (shows browser)
-pnpm run download -- --debug --no-headless --concurrency 1
+Relevant environment variables supported by this project:
 
-# Check environment
+```bash
+# Required
+UNSPLASH_ACCESS_KEY=your_access_key_here
+
+# Optional (enables auto-login)
+UNSPLASH_EMAIL=your_email@example.com
+UNSPLASH_PASSWORD=your_password_here
+
+# Optional configuration overrides
+PLAYWRIGHT_TIMEOUT=30000
+PLAYWRIGHT_RETRIES=3
+PLAYWRIGHT_PREFERRED_SIZE=original
+PLAYWRIGHT_LIMIT=0
+PLAYWRIGHT_HEADLESS=true
+PLAYWRIGHT_DEBUG=false
+```
+
+## 🚀 Running the Downloader
+
+From your main project (via the added script):
+
+```bash
+pnpm run download:images:playwright
+```
+
+Or directly inside the tool:
+
+```bash
+# Build and run
+pnpm run download
+
+# Development mode with hot reload
+pnpm run download:dev
+
+# Visible browser (helpful for manual login or debugging)
+pnpm run download -- --no-headless
+pnpm run download:dev -- --no-headless
+
+# Environment check and list-only modes
 pnpm run download -- check
-
-# List what would be downloaded
 pnpm run download -- list
 ```
 
-### Integration in CI/CD
+## 🎛️ CLI Options
+
+The CLI supports the following options (see README for full details):
+
+```bash
+pnpm run download -- \
+  --timeout 45000 \
+  --retries 5 \
+  --limit 10 \
+  --manifest-path ./public/unsplash-manifest.json \
+  --download-dir ./public/images/unsplash \
+  --no-headless \
+  --debug
+```
+
+## 🧠 Smart Path Resolution
+
+The tool tries to find your manifest and output folders in common locations if not explicitly provided. You can always override with --manifest-path and --download-dir.
+
+## 🤖 CI/CD Integration
+
+Example GitHub Actions step:
 
 ```yaml
-# GitHub Actions example
 - name: Download images with Playwright
   run: |
     cd tools/playwright-image-downloader
@@ -132,65 +150,56 @@ pnpm run download -- list
     UNSPLASH_ACCESS_KEY: ${{ secrets.UNSPLASH_ACCESS_KEY }}
 ```
 
+Tips:
+- In CI, consider running with --headless (default) and increasing --timeout for large downloads.
+- Ensure your pipeline caches pnpm and Playwright browsers where possible for speed.
+
+## 🧩 Programmatic Usage (Optional)
+
+You can also use the downloader as a library inside a Node.js script within your main project:
+
+```ts
+import { PlaywrightImageDownloader } from "./tools/playwright-image-downloader/src/index.js";
+
+const downloader = new PlaywrightImageDownloader({
+  headless: true,
+  timeout: 45000,
+});
+
+const result = await downloader.run();
+console.log("Downloaded:", result.stats.downloaded);
+```
+
+Adjust the import path based on where you place this tool in your project.
+
 ## 🔧 Troubleshooting Integration
 
-### Common Issues
+Common issues and fixes:
 
-**"Manifest not found"**
+- "Manifest not found"
+  - Pass --manifest-path explicitly or place the file in a common location like ./public/unsplash-manifest.json
+- "Browser installation failed"
+  - Run pnpm run install-browsers and ensure your build agents have necessary system dependencies
+- "Permission denied"
+  - Ensure the download directory exists and your process can write to it
+- "Login failed"
+  - Verify UNSPLASH_EMAIL/UNSPLASH_PASSWORD or run with --no-headless for manual login
 
-- Ensure you've run the cache building step first
-- Check the manifest path in configuration
-
-**"Browser installation failed"**
-
-- Run `pnpm run install-browsers` manually
-- Check system requirements for Playwright
-
-**"Permission denied"**
-
-- Check write permissions on the download directory
-- Ensure the script has access to create files
-
-### Debug Mode
-
-For troubleshooting, always use debug mode:
+Use debug mode to diagnose:
 
 ```bash
 cd tools/playwright-image-downloader
 pnpm run download -- --no-headless --debug --concurrency 1
 ```
 
-This will:
-
-- Show the browser window
-- Open DevTools
-- Process one image at a time
-- Provide detailed error messages
-
-## 📊 Output Comparison
-
-### Original Script Output
-
-```
-🖼️  Unsplash Image Download Tool
-📄 Loading manifest...
-📊 Found 18 images to process
-🚀 Starting downloads...
-Progress: [████████████████] 100% (18/18)
-✅ Successfully downloaded: 15
-⏭️  Skipped: 2
-❌ Failed: 1
-💾 Storage Used: 45.67 MB
-```
-
-### Playwright Service Output
+## 📊 Example Output (Playwright Service)
 
 ```
 🎭 Playwright Image Downloader
 🚀 Initializing Playwright Image Downloader...
 ✅ Browser initialized
 📄 Loading manifest...
-✅ Loaded 18 images from manifest
+✅ Loaded N images from manifest
 📊 Configuration:
    • Download directory: /path/to/images
    • Concurrency: 3
@@ -209,26 +218,12 @@ Progress: [████████████████] 100% (18/18)
    ❌ Failed to download: 1
    ⏱️  Total time: 45.2s
    💾 Storage used: 45.67 MB
-   📄 Local manifest: tools/../public/images/unsplash/local-manifest.json
+   📄 Local manifest: public/images/unsplash/local-manifest.json
 🎉 Download process complete!
 ```
 
-## 🔮 Future Enhancements
-
-Potential improvements to consider:
-
-- Support for other image sources besides Unsplash
-- Image optimization/compression during download
-- Parallel browser instances for faster downloads
-- Integration with CDN upload
-- Automatic image format conversion
-- Duplicate image detection across different sources
-
 ## 📞 Support
 
-If you encounter issues:
-
-1. Check the troubleshooting section in `tools/playwright-image-downloader/README.md`
-2. Run in debug mode to see what's happening
-3. Check the browser compatibility
-4. Verify your Unsplash account permissions
+- See this repository's README for full documentation
+- Run in debug mode for visual troubleshooting
+- Verify your Unsplash account and API access key

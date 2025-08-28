@@ -278,7 +278,7 @@ export class FileSystemService {
       }
     });
 
-    const localManifestPath = path.join(downloadDir, "local-manifest.json");
+    const localManifestPath = path.join(downloadDir, "manifest.json");
     await this.writeJson(localManifestPath, localManifest);
 
     return { localManifest, localManifestPath };

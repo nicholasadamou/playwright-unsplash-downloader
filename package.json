@@ -1,5 +1,5 @@
 {
-  "name": "playwright-image-downloader",
+  "name": "playwright-unsplash-downloader",
   "version": "1.0.0",
   "description": "Playwright-based service to download images from Unsplash with authentication",
   "private": true,

@@ -204,14 +204,14 @@ export class ManifestService {
     originalManifest: ManifestFile,
     stats: StatsProvider
   ): Promise<LocalManifestResult> {
-    console.log(chalk.blue("\n📝 Creating local manifest..."));
+    console.log(chalk.blue("\n📝 Creating manifest..."));
 
     const { localManifest, localManifestPath } =
       await this.fs.createLocalManifest(results, originalManifest, stats);
 
     console.log(
       chalk.blue(
-        `   📄 Local manifest: ${this.fs.getRelativePath(localManifestPath, process.cwd())}`
+        `   📄 Manifest: ${this.fs.getRelativePath(localManifestPath, process.cwd())}`
       )
     );
 

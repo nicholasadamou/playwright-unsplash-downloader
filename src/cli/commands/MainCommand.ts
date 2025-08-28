@@ -49,11 +49,11 @@ export class MainCommand {
     options: Record<string, any>
   ): Promise<MainCommandResult> {
     try {
-      this.outputFormatter.displayHeader("Playwright Image Downloader");
+      this.outputFormatter.displayHeader("Playwright Unsplash Downloader");
 
       // Parse and validate options
       const downloaderOptions = this.optionParser.parseMainOptions(options);
-      
+
       // Preload and validate manifest early
       const manifestResult = await this.manifestPreloader.preloadManifest(options.manifestPath);
       if (!manifestResult.success) {
@@ -63,7 +63,7 @@ export class MainCommand {
           error: manifestResult.error || "Manifest validation failed"
         };
       }
-      
+
       // Display manifest preload success
       if (options.debug) {
         this.manifestPreloader.displayPreloadResult(manifestResult);
@@ -206,7 +206,7 @@ export class MainCommand {
   ): Promise<ValidationResult> {
     // Validate manifest exists before starting
     const manifestExists = await this.manifestPreloader.manifestExists(options.manifestPath);
-    
+
     if (!manifestExists) {
       const manifestResult = await this.manifestPreloader.preloadManifest(options.manifestPath);
       return {
@@ -214,7 +214,7 @@ export class MainCommand {
         error: manifestResult.error || "Manifest file not found"
       };
     }
-    
+
     return { valid: true };
   }
 

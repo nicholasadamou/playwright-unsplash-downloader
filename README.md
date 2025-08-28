@@ -1,4 +1,4 @@
-# 🎭 Playwright Image Downloader
+# 🎭 Playwright Unsplash Downloader
 
 A sophisticated TypeScript-based Playwright service for downloading images from Unsplash with proper authentication, retry logic, and browser automation. Built with a modular service architecture, this tool provides a more reliable alternative to traditional API-based downloading by actually visiting the Unsplash website and handling authentication naturally.
 

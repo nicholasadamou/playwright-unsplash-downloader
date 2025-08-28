@@ -1,4 +1,4 @@
-# 🎭 Playwright Image Downloader Integration
+# 🎭 Playwright Unsplash Downloader Integration
 
 This guide explains how to integrate this Playwright-based Unsplash image downloader into another project. It reflects the actual functionality and scripts provided by this repository.
 
@@ -195,8 +195,8 @@ pnpm run download -- --no-headless --debug --concurrency 1
 ## 📊 Example Output (Playwright Service)
 
 ```
-🎭 Playwright Image Downloader
-🚀 Initializing Playwright Image Downloader...
+🎭 Playwright Unsplash Downloader
+🚀 Initializing Playwright Unsplash Downloader...
 ✅ Browser initialized
 📄 Loading manifest...
 ✅ Loaded N images from manifest

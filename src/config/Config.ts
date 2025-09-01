@@ -86,7 +86,9 @@ export class Config {
       userAgent:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       dryRun: false,
-    } satisfies Required<Omit<ConfigOptions, "limit">>;
+      concurrency: 3,
+      enableConcurrency: true,
+    } satisfies Required<Omit<ConfigOptions, "limit">>
 
     const config: ConfigOptions = {
       ...defaults,
@@ -219,6 +221,17 @@ export class Config {
 
     if (typeof config.dryRun !== "boolean") {
       throw new Error("DryRun must be a boolean");
+    }
+
+    if (
+      config.concurrency &&
+      (typeof config.concurrency !== "number" || config.concurrency <= 0 || config.concurrency > 10)
+    ) {
+      throw new Error("Concurrency must be a positive number between 1 and 10");
+    }
+
+    if (typeof config.enableConcurrency !== "boolean") {
+      throw new Error("EnableConcurrency must be a boolean");
     }
   }
 

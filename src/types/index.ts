@@ -40,6 +40,10 @@ export interface ConfigOptions {
   userAgent?: string;
   /** Simulate downloads without actually downloading */
   dryRun?: boolean;
+  /** Number of concurrent downloads (default: 3) */
+  concurrency?: number;
+  /** Enable concurrent downloads (default: true) */
+  enableConcurrency?: boolean;
 }
 
 /**

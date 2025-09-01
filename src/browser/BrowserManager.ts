@@ -44,6 +44,9 @@ export class BrowserManager {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
+  private contextPool: BrowserContext[] = [];
+  private availableContexts: BrowserContext[] = [];
+  private busyContexts: Set<BrowserContext> = new Set();
 
   /**
    * Create a new browser manager instance.
@@ -215,6 +218,95 @@ export class BrowserManager {
     }
   }
   /**
+   * Initialize context pool for concurrent operations.
+   * Creates multiple browser contexts to enable parallel downloads.
+   *
+   * @param poolSize - Number of contexts to create
+   * @returns Promise that resolves when pool is ready
+   */
+  async initializeContextPool(poolSize: number): Promise<void> {
+    if (!this.browser) {
+      throw new Error("Browser not initialized. Call initialize() first.");
+    }
+
+    console.log(chalk.blue(`🔄 Creating context pool with ${poolSize} contexts...`));
+
+    for (let i = 0; i < poolSize; i++) {
+      const context = await this.browser.newContext(this.config.getContextConfig());
+      
+      // Set up request interception for each context
+      await context.route("**/*", async (route: Route) => {
+        const request = route.request();
+        if (
+          request.resourceType() === "font" ||
+          request.resourceType() === "stylesheet" ||
+          (request.resourceType() === "script" &&
+            !request.url().includes("unsplash"))
+        ) {
+          await route.abort();
+        } else {
+          await route.continue();
+        }
+      });
+
+      this.contextPool.push(context);
+      this.availableContexts.push(context);
+    }
+
+    console.log(chalk.green(`✅ Context pool initialized with ${poolSize} contexts`));
+  }
+
+  /**
+   * Acquire a context from the pool for exclusive use.
+   * Blocks if no contexts are available until one becomes free.
+   *
+   * @returns Promise that resolves to an available context
+   */
+  async acquireContext(): Promise<BrowserContext> {
+    while (this.availableContexts.length === 0) {
+      // Wait for a context to become available
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    const context = this.availableContexts.pop()!;
+    this.busyContexts.add(context);
+    return context;
+  }
+
+  /**
+   * Release a context back to the available pool.
+   *
+   * @param context - Context to release
+   */
+  releaseContext(context: BrowserContext): void {
+    if (this.busyContexts.has(context)) {
+      this.busyContexts.delete(context);
+      this.availableContexts.push(context);
+    }
+  }
+
+  /**
+   * Create a page in a specific context for concurrent operations.
+   *
+   * @param context - Browser context to create page in
+   * @returns Promise that resolves to a new page
+   */
+  async createPageInContext(context: BrowserContext): Promise<Page> {
+    return await context.newPage();
+  }
+
+  /**
+   * Wait for a download event in a specific context.
+   *
+   * @param page - Page to listen for downloads on
+   * @param timeout - Maximum time to wait in milliseconds
+   * @returns Promise that resolves when download starts
+   */
+  async waitForDownloadInPage(page: Page, timeout: number): Promise<Download> {
+    return await page.waitForEvent("download", { timeout });
+  }
+
+  /**
    * Wait for a download event to occur on the current page.
    * Used by download operations to capture download streams.
    *
@@ -255,6 +347,20 @@ export class BrowserManager {
         await this.page.close();
         this.page = null;
       }
+
+      // Clean up context pool
+      for (const context of this.contextPool) {
+        try {
+          await context.close();
+        } catch (error) {
+          console.log(
+            chalk.gray(`Warning closing context: ${(error as Error).message}`)
+          );
+        }
+      }
+      this.contextPool = [];
+      this.availableContexts = [];
+      this.busyContexts.clear();
 
       if (this.context) {
         await this.context.close();

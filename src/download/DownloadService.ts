@@ -6,7 +6,6 @@ import type { BrowserManager } from "../browser/BrowserManager.js";
 import type { FileSystemService } from "../fs/FileSystemService.js";
 import type { StatsTracker } from "../stats/StatsTracker.js";
 import { UnsplashAPIService } from "../api/UnsplashAPIService.js";
-import type { UnsplashImageMetadata } from "../api/UnsplashAPIService.js";
 import type {
   ImageData,
   DownloadResult,
@@ -402,7 +401,7 @@ export class DownloadService {
         height: apiMetadata.height,
         likes: apiMetadata.likes,
       };
-      
+
       // Add optional fields only if they have values
       if (apiMetadata.description) {
         enhancedResult.description = apiMetadata.description;
@@ -413,7 +412,7 @@ export class DownloadService {
       if (apiMetadata.camera) {
         enhancedResult.camera = apiMetadata.camera;
       }
-      
+
       return enhancedResult;
     } catch (error) {
       console.log(
@@ -421,6 +420,281 @@ export class DownloadService {
       );
       return result;
     }
+  }
+
+  /**
+   * Download a single image using a specific browser context for concurrent operations.
+   * This method is similar to downloadImage but uses a provided context for parallel processing.
+   *
+   * @param photoId - Unsplash photo ID to download
+   * @param imageData - Image metadata including dimensions and author
+   * @param context - Browser context to use for this download
+   * @param attempt - Current retry attempt number
+   * @returns Complete download result with status and metadata
+   */
+  async downloadImageConcurrent(
+    photoId: string,
+    imageData: ImageData,
+    context: any,
+    attempt: number = 1
+  ): Promise<DownloadResult> {
+    try {
+      const retries = this.config.get("retries");
+      if (retries === undefined) {
+        throw new Error("Retries not configured");
+      }
+
+      console.log(
+        chalk.blue(`📥 [${attempt}/${retries}] Downloading (concurrent): ${photoId}`)
+      );
+
+      // In dry-run mode, simulate success without actually downloading
+      if (this.config.get("dryRun")) {
+        console.log(chalk.gray(`   [DRY RUN] Would download from direct URL`));
+        this.stats.incrementDownloaded();
+
+        const downloadDir = this.config.get("downloadDir");
+        if (!downloadDir) {
+          throw new Error("Download directory not configured");
+        }
+
+        // Create basic result with proper author information
+        let result: DownloadResult = {
+          success: true,
+          photoId,
+          filepath: path.join(downloadDir, `${photoId}.jpg`),
+          filename: `${photoId}.jpg`,
+          size: 1024 * 1024, // Simulate 1MB file
+          author: (imageData.image_author as string) || "Unknown author",
+          authorUrl: imageData.image_author_url as string,
+          width: imageData.width as number,
+          height: imageData.height as number,
+          description: imageData.description as string,
+          dryRun: true,
+        };
+
+        // Enhance with API metadata
+        result = await this.enhanceWithApiMetadata(result);
+        return result;
+      }
+
+      // Use concurrent download approach
+      const download = await this.downloadImageDirectConcurrent(photoId, imageData, context);
+
+      console.log(
+        chalk.gray(`   ✅ Direct download URL worked for ${photoId} (concurrent)`)
+      );
+
+      // Save the download using file system service
+      const fileInfo = await this.fs.saveDownload(download, photoId);
+
+      console.log(
+        chalk.green(
+          `✅ Downloaded: ${fileInfo.filename} (${(fileInfo.size / 1024 / 1024).toFixed(2)} MB)`
+        )
+      );
+
+      this.stats.incrementDownloaded();
+
+      // Create basic result with proper author information
+      let result: DownloadResult = {
+        success: true,
+        photoId,
+        filepath: fileInfo.filepath,
+        filename: fileInfo.filename,
+        size: fileInfo.size,
+        author: (imageData.image_author as string) || "Unknown author",
+        authorUrl: imageData.image_author_url as string,
+        width: imageData.width as number,
+        height: imageData.height as number,
+        description: imageData.description as string,
+      };
+
+      // Enhance with API metadata
+      result = await this.enhanceWithApiMetadata(result);
+      return result;
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+      console.error(
+        chalk.red(`❌ Error downloading ${photoId} (concurrent):`, errorMessage)
+      );
+
+      const retries = this.config.get("retries");
+      if (retries && attempt < retries) {
+        console.log(
+          chalk.yellow(
+            `🔄 Retrying ${photoId} (attempt ${attempt + 1}/${retries})`
+          )
+        );
+        await this.exponentialBackoff(attempt);
+        return this.downloadImageConcurrent(photoId, imageData, context, attempt + 1);
+      }
+
+      this.stats.incrementFailed();
+      return {
+        success: false,
+        photoId,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Download image using direct URL approach with a specific context.
+   *
+   * @param photoId - Unsplash photo ID to download
+   * @param imageData - Image metadata including dimensions and author
+   * @param context - Browser context to use
+   * @returns Playwright download object
+   */
+  async downloadImageDirectConcurrent(
+    photoId: string,
+    imageData: ImageData,
+    context: any
+  ): Promise<any> {
+    try {
+      console.log(chalk.gray(`   Trying direct download URL for ${photoId} (concurrent)`));
+
+      // Create a page in the provided context
+      const page = await this.browser.createPageInContext(context);
+
+      try {
+        const ixid = await this.extractIxidConcurrent(photoId, page);
+
+        // Validate preferred size and implement fallback strategy
+        const preferredSize = this.config.get("preferredSize");
+        if (!preferredSize) {
+          throw new Error("Preferred size not configured");
+        }
+
+        const { selectedSize, selectedWidth } = await this.validateAndSelectSize(
+          photoId,
+          imageData,
+          preferredSize.toLowerCase()
+        );
+
+        // Construct direct download URL with ixid and optional width
+        let downloadUrl = `https://unsplash.com/photos/${photoId}/download?ixid=${ixid}&force=true`;
+
+        if (selectedWidth) {
+          downloadUrl += `&w=${selectedWidth}`;
+          console.log(
+            chalk.gray(`   Using ${selectedSize} size (w=${selectedWidth}) (concurrent)`)
+          );
+        } else {
+          console.log(
+            chalk.gray(`   Using ${selectedSize} size (no width limit) (concurrent)`)
+          );
+        }
+
+        // Find the button/link that has the download URL
+        const downloadButton = page
+          .locator(`a[href="${downloadUrl}"], a[href*="${ixid}"]`)
+          .first();
+
+        // Check if the button exists
+        const buttonExists = await downloadButton.isVisible({ timeout: 5000 });
+        if (!buttonExists) {
+          // Try to find any download link with the ixid
+          const anyDownloadButton = page
+            .locator(`a[href*="download"][href*="${ixid}"]`)
+            .first();
+          const anyButtonExists = await anyDownloadButton.isVisible({
+            timeout: 3000,
+          });
+
+          if (!anyButtonExists) {
+            throw new Error("Could not find download button on page");
+          }
+
+          // Set up the download promise before clicking
+          const timeout = this.config.get("timeout");
+          if (timeout === undefined) {
+            throw new Error("Timeout not configured");
+          }
+          const downloadPromise = this.browser.waitForDownloadInPage(page, timeout);
+
+          // Click the download button
+          await anyDownloadButton.click();
+          return await downloadPromise;
+        }
+
+        // Set up the download promise before clicking
+        const timeout = this.config.get("timeout");
+        if (timeout === undefined) {
+          throw new Error("Timeout not configured");
+        }
+        const downloadPromise = this.browser.waitForDownloadInPage(page, timeout);
+
+        // Click the download button
+        await downloadButton.click();
+        return await downloadPromise;
+      } finally {
+        // Clean up the page
+        await page.close();
+      }
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Extract ixid parameter using a specific page for concurrent operations.
+   *
+   * @param photoId - Unsplash photo ID to extract ixid for
+   * @param page - Page instance to use
+   * @returns The extracted ixid parameter
+   */
+  async extractIxidConcurrent(photoId: string, page: any): Promise<string> {
+    const photoUrl = `https://unsplash.com/photos/${photoId}`;
+    await page.goto(photoUrl, { waitUntil: "domcontentloaded" });
+
+    let ixid = null;
+
+    // Try to find ixid from download buttons or links
+    const downloadLinks = await page
+      .locator('a[href*="download"][href*="ixid"]')
+      .all();
+
+    for (const link of downloadLinks) {
+      try {
+        const href = await link.getAttribute("href");
+        if (href && href.includes("ixid=")) {
+          const match = href.match(/ixid=([^&]+)/);
+          if (match) {
+            ixid = match[1];
+            break;
+          }
+        }
+      } catch (e) {
+        // Continue to the next link if this one fails
+      }
+    }
+
+    // If we couldn't find ixid from download links, try to extract from page source
+    if (!ixid) {
+      try {
+        const pageContent = await page.content();
+        const ixidMatch = pageContent.match(/ixid=([A-Za-z0-9+\/=]+)/);
+        if (ixidMatch) {
+          ixid = ixidMatch[1];
+        }
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : "Unknown error";
+        console.log(
+          chalk.yellow(
+            `   Could not extract ixid from page content: ${errorMessage}`
+          )
+        );
+      }
+    }
+
+    if (!ixid) {
+      throw new Error("Could not find ixid parameter required for download");
+    }
+
+    return ixid;
   }
 
   /**
@@ -509,7 +783,7 @@ export class DownloadService {
 
       this.stats.incrementDownloaded();
 
-      // Create basic result with proper author information  
+      // Create basic result with proper author information
       let result: DownloadResult = {
         success: true,
         photoId,
@@ -666,8 +940,101 @@ export class DownloadService {
   }
 
   /**
+   * Process images concurrently with configurable worker pool.
+   * Downloads multiple images in parallel using separate browser contexts,
+   * respects rate limits, and maintains authentication across contexts.
+   *
+   * @param imageEntries - Array of [photoId, imageData] tuples
+   * @returns Array of download results
+   */
+  async downloadImagesConcurrent(imageEntries: ImageEntry[]): Promise<DownloadResult[]> {
+    const concurrency = this.config.get("concurrency") || 3;
+
+    console.log(
+      chalk.blue(`📦 Processing ${imageEntries.length} images with ${concurrency} concurrent workers`)
+    );
+
+    // Initialize context pool for concurrent operations
+    await this.browser.initializeContextPool(concurrency);
+
+    const results: DownloadResult[] = [];
+    const workerPromises: Promise<void>[] = [];
+    let currentIndex = 0;
+
+    // Create worker functions
+    const createWorker = async (workerId: number): Promise<void> => {
+      while (currentIndex < imageEntries.length) {
+        const entryIndex = currentIndex++;
+        if (entryIndex >= imageEntries.length) break;
+        
+        const entry = imageEntries[entryIndex];
+        if (!entry) continue; // Skip if entry is undefined
+        
+        const [photoId, imageData] = entry;
+
+        try {
+          // Check if image already exists
+          const existsCheck = await this.fs.imageExists(photoId);
+          if (existsCheck.exists) {
+            console.log(chalk.gray(`⏭️  Worker ${workerId}: Skipped (exists): ${photoId}`));
+            this.stats.incrementSkipped();
+            results[entryIndex] = {
+              success: true,
+              photoId,
+              skipped: true,
+              filepath: existsCheck.filepath || "",
+              size: existsCheck.size || 0,
+              author: (imageData.image_author as string) || "Unknown author",
+              authorUrl: imageData.image_author_url as string,
+              width: imageData.width as number,
+              height: imageData.height as number,
+              description: imageData.description as string,
+            };
+            continue;
+          }
+
+          // Acquire a context for this download
+          const context = await this.browser.acquireContext();
+
+          try {
+            // Download the image using the acquired context
+            const result = await this.downloadImageConcurrent(photoId, imageData, context);
+            results[entryIndex] = result;
+
+            // Small delay to be respectful to the server
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          } finally {
+            // Always release the context back to the pool
+            this.browser.releaseContext(context);
+          }
+        } catch (error) {
+          console.error(
+            chalk.red(`Worker ${workerId} error processing ${photoId}:`, (error as Error).message)
+          );
+          results[entryIndex] = {
+            success: false,
+            photoId,
+            error: (error as Error).message,
+          };
+        }
+      }
+    };
+
+    // Start all workers
+    for (let i = 0; i < concurrency; i++) {
+      workerPromises.push(createWorker(i));
+    }
+
+    // Wait for all workers to complete
+    await Promise.all(workerPromises);
+
+    // Filter out any undefined results (shouldn't happen, but safety check)
+    return results.filter(result => result !== undefined);
+  }
+
+  /**
    * Download images with progress tracking and timing statistics.
-   * Wraps the main download process with timing measurement and progress display.
+   * Automatically chooses between concurrent and sequential processing based on configuration.
    *
    * @param imageEntries - Array of [photoId, imageData] tuples
    * @returns Array of download results
@@ -683,8 +1050,28 @@ export class DownloadService {
   ): Promise<DownloadResult[]> {
     console.log(chalk.blue("\n🚀 Starting downloads...\n"));
 
+    const enableConcurrency = this.config.get("enableConcurrency");
+    const concurrency = this.config.get("concurrency") || 3;
+
+    if (enableConcurrency && imageEntries.length > 1) {
+      console.log(
+        chalk.green(`⚡ Concurrent mode enabled with ${concurrency} workers`)
+      );
+    } else {
+      console.log(
+        chalk.blue("📋 Sequential mode (concurrency disabled or single image)")
+      );
+    }
+
     this.stats.startTiming();
-    const results = await this.downloadImages(imageEntries);
+
+    let results: DownloadResult[];
+    if (enableConcurrency && imageEntries.length > 1) {
+      results = await this.downloadImagesConcurrent(imageEntries);
+    } else {
+      results = await this.downloadImages(imageEntries);
+    }
+
     this.stats.endTiming();
 
     return results;
